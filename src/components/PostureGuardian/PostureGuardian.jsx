@@ -3,15 +3,14 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useApp } from '../../context/AppContext'
 
 // ─── config ────────────────────────────────────────────────────────────────
-const PUBLISHABLE_KEY = 'rf_hR9zzhlC3FRH2ZZftScPioAFU0S2'  // client-safe publishable key
-const MODEL_ID        = '45cpgzIqMjWlhieTOpld'
-const MODEL_VERSION   = 1
-const INFER_MS        = 1500   // inference every 1.5 s
-const SLOUCH_FRAMES   = 3      // consecutive bad frames before warning
-const HP_PENALTY      = 2      // HP lost per slouch episode
-const SDK_CDN         = 'https://cdn.jsdelivr.net/npm/roboflow@0.2.26/dist/roboflow.js'
+const API_KEY      = 'rf_hR9zzhlC3FRH2ZZftScPioAFU0S2'
+const API_URL      = `https://detect.roboflow.com/posture_correction_v4/4?api_key=${API_KEY}`
+const CAPTURE_SECS = 5
+const WAIT_SECS    = 30
+const HP_GOOD      = 5
+const HP_BAD       = 3
+const MAX_HISTORY  = 3
 
-// heuristic — covers common class name conventions
 function isBadPosture(cls = '') {
   const l = cls.toLowerCase()
   return (
@@ -21,85 +20,23 @@ function isBadPosture(cls = '') {
   )
 }
 
-// ─── canvas helpers ────────────────────────────────────────────────────────
-function drawRoundRect(ctx, x, y, w, h, r) {
-  ctx.beginPath()
-  ctx.moveTo(x + r, y)
-  ctx.lineTo(x + w - r, y)
-  ctx.quadraticCurveTo(x + w, y, x + w, y + r)
-  ctx.lineTo(x + w, y + h - r)
-  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h)
-  ctx.lineTo(x + r, y + h)
-  ctx.quadraticCurveTo(x, y + h, x, y + h - r)
-  ctx.lineTo(x, y + r)
-  ctx.quadraticCurveTo(x, y, x + r, y)
-  ctx.closePath()
-}
-
-function paintBoxes(canvas, video, predictions) {
-  if (!canvas || !video) return
-  // canvas pixel dims = video natural dims → 1-to-1 coordinate mapping
-  const natW = video.videoWidth  || 640
-  const natH = video.videoHeight || 480
-  canvas.width  = natW
-  canvas.height = natH
-
-  const ctx = canvas.getContext('2d')
-  ctx.clearRect(0, 0, natW, natH)
-
-  predictions.forEach(({ x, y, width, height, class: cls, confidence }) => {
-    const bad   = isBadPosture(cls)
-    const color = bad ? '#FF8C5A' : '#72B896'
-    const left  = x - width  / 2
-    const top   = y - height / 2
-
-    // box outline with rounded corners
-    ctx.strokeStyle = color
-    ctx.lineWidth   = 3
-    drawRoundRect(ctx, left, top, width, height, 8)
-    ctx.stroke()
-
-    // semi-transparent box fill
-    ctx.fillStyle = color + '22'
-    drawRoundRect(ctx, left, top, width, height, 8)
-    ctx.fill()
-
-    // label pill
-    const label   = `${cls}  ${Math.round(confidence * 100)}%`
-    ctx.font      = 'bold 15px Nunito, sans-serif'
-    const tw      = ctx.measureText(label).width
-    const lpad    = 10
-    const lh      = 26
-    const lx      = left
-    const ly      = top - lh - 6
-
-    ctx.fillStyle = color
-    drawRoundRect(ctx, lx, ly, tw + lpad * 2, lh, 6)
-    ctx.fill()
-
-    ctx.fillStyle = '#FFFFFF'
-    ctx.fillText(label, lx + lpad, ly + lh - 7)
+async function captureAndInfer(video) {
+  const cvs = document.createElement('canvas')
+  cvs.width  = video.videoWidth  || 640
+  cvs.height = video.videoHeight || 480
+  cvs.getContext('2d').drawImage(video, 0, 0)
+  const base64 = cvs.toDataURL('image/jpeg', 0.85).split(',')[1]
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: base64,
   })
-}
-
-// ─── SDK loader (idempotent) ────────────────────────────────────────────────
-function loadSDK() {
-  if (window.roboflow) return Promise.resolve(window.roboflow)
-  return new Promise((resolve, reject) => {
-    // avoid double-injecting
-    if (document.querySelector(`script[src="${SDK_CDN}"]`)) {
-      const poll = setInterval(() => {
-        if (window.roboflow) { clearInterval(poll); resolve(window.roboflow) }
-      }, 100)
-      return
-    }
-    const s = document.createElement('script')
-    s.src = SDK_CDN
-    s.crossOrigin = 'anonymous'
-    s.onload  = () => resolve(window.roboflow)
-    s.onerror = () => reject(new Error('Failed to load Roboflow SDK from CDN.'))
-    document.head.appendChild(s)
-  })
+  if (!res.ok) throw new Error(`API error ${res.status}`)
+  const data  = await res.json()
+  const preds = data.predictions ?? []
+  if (!preds.length) return { isGood: true }
+  const top = [...preds].sort((a, b) => b.confidence - a.confidence)[0]
+  return { isGood: !isBadPosture(top.class) }
 }
 
 // ─── component ─────────────────────────────────────────────────────────────
@@ -107,99 +44,104 @@ export default function PostureGuardian() {
   const { isSlouching, setIsSlouching, setPetHealth } = useApp()
 
   const videoRef   = useRef(null)
-  const canvasRef  = useRef(null)
-  const modelRef   = useRef(null)
   const streamRef  = useRef(null)
-  const timerRef   = useRef(null)
-  const slouchRef  = useRef(0)   // consecutive bad-frame counter
-  const penaltyRef = useRef(false) // HP already deducted for this episode
+  const historyRef = useRef([])   // source-of-truth for comparison logic
 
-  const [status,  setStatus]  = useState('idle')   // idle|loading|active|error
-  const [label,   setLabel]   = useState(null)      // 'good'|'slouching'|null
-  const [errMsg,  setErrMsg]  = useState('')
+  // phase: idle | starting | countdown | capturing | result | waiting
+  const [phase,    setPhase]    = useState('idle')
+  const [cdSecs,   setCdSecs]   = useState(CAPTURE_SECS)
+  const [waitSecs, setWaitSecs] = useState(WAIT_SECS)
+  const [result,   setResult]   = useState(null)
+  const [history,  setHistory]  = useState([])   // for rendering dots
+  const [errMsg,   setErrMsg]   = useState('')
 
-  // ── stop (safe to call any time) ─────────────────────────────────────────
-  const stop = useCallback(() => {
-    clearInterval(timerRef.current)
+  // ── stop / cleanup ────────────────────────────────────────────────────────
+  const stopCamera = useCallback(() => {
     streamRef.current?.getTracks().forEach(t => t.stop())
-    if (modelRef.current?.teardown) modelRef.current.teardown()
-    modelRef.current  = null
     streamRef.current = null
-    slouchRef.current  = 0
-    penaltyRef.current = false
+    if (videoRef.current) videoRef.current.srcObject = null
     setIsSlouching(false)
-    setLabel(null)
-    setStatus('idle')
+    historyRef.current = []
+    setHistory([])
+    setResult(null)
+    setErrMsg('')
+    setCdSecs(CAPTURE_SECS)
+    setWaitSecs(WAIT_SECS)
+    setPhase('idle')
   }, [setIsSlouching])
 
-  useEffect(() => () => stop(), [stop])
+  useEffect(() => () => stopCamera(), [stopCamera])
 
-  // ── process one inference result ─────────────────────────────────────────
-  const processResults = useCallback((predictions) => {
-    if (!predictions.length) {
-      slouchRef.current  = 0
-      penaltyRef.current = false
-      setIsSlouching(false)
-      setLabel(null)
-      return
-    }
+  // ── scan ──────────────────────────────────────────────────────────────────
+  const runScan = useCallback(async () => {
+    setPhase('capturing')
+    try {
+      const { isGood } = await captureAndInfer(videoRef.current)
 
-    // highest-confidence prediction drives the verdict
-    const top = [...predictions].sort((a, b) => b.confidence - a.confidence)[0]
-    const bad = isBadPosture(top.class)
-
-    if (bad) {
-      slouchRef.current++
-      setLabel('slouching')
-      if (slouchRef.current >= SLOUCH_FRAMES) {
+      if (isGood) {
+        setPetHealth(h => Math.min(100, h + HP_GOOD))
+        setIsSlouching(false)
+      } else {
+        setPetHealth(h => Math.max(0, h - HP_BAD))
         setIsSlouching(true)
-        // deduct HP once per episode; reset when posture corrects
-        if (!penaltyRef.current) {
-          penaltyRef.current = true
-          setPetHealth(h => Math.max(0, h - HP_PENALTY))
-        }
       }
-    } else {
-      slouchRef.current  = 0
-      penaltyRef.current = false
-      setIsSlouching(false)
-      setLabel('good')
-    }
-  }, [setIsSlouching, setPetHealth])
 
-  // ── run one inference tick ────────────────────────────────────────────────
-  const runInference = useCallback(async () => {
-    const model = modelRef.current
-    const video = videoRef.current
-    if (!model || !video || video.readyState < 2) return
-    try {
-      const predictions = await model.detect(video)
-      processResults(predictions)
-      paintBoxes(canvasRef.current, video, predictions)
+      const prevLen = historyRef.current.length
+      let comparison = null
+      if (prevLen > 0) {
+        const prev = historyRef.current[prevLen - 1]
+        if (!prev && isGood)  comparison = 'Better than last time! 🌟'
+        if (!prev && !isGood) comparison = 'Still slouching — try adjusting your chair height.'
+        if (prev  && isGood)  comparison = 'Keep it up! 💪'
+        if (prev  && !isGood) comparison = 'Posture slipped — take a moment to reset.'
+      }
+
+      historyRef.current = [...historyRef.current, isGood].slice(-MAX_HISTORY)
+      setHistory([...historyRef.current])
+      setResult({ isGood, comparison })
+      setPhase('result')
     } catch (e) {
-      console.warn('[PostureGuardian] inference error', e)
+      // stop camera and surface error
+      streamRef.current?.getTracks().forEach(t => t.stop())
+      streamRef.current = null
+      if (videoRef.current) videoRef.current.srcObject = null
+      setIsSlouching(false)
+      historyRef.current = []
+      setHistory([])
+      setResult(null)
+      setCdSecs(CAPTURE_SECS)
+      setWaitSecs(WAIT_SECS)
+      setErrMsg(e.message?.slice(0, 120) || 'Scan failed. Check your connection.')
+      setPhase('idle')
     }
-  }, [processResults])
+  }, [setPetHealth, setIsSlouching])
 
-  // ── start ─────────────────────────────────────────────────────────────────
-  async function start() {
-    setStatus('loading')
+  // ── phase ticks ───────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (phase !== 'countdown') return
+    if (cdSecs <= 0) { runScan(); return }
+    const t = setTimeout(() => setCdSecs(s => s - 1), 1000)
+    return () => clearTimeout(t)
+  }, [phase, cdSecs, runScan])
+
+  useEffect(() => {
+    if (phase !== 'result') return
+    const t = setTimeout(() => { setPhase('waiting'); setWaitSecs(WAIT_SECS) }, 3500)
+    return () => clearTimeout(t)
+  }, [phase])
+
+  useEffect(() => {
+    if (phase !== 'waiting') return
+    if (waitSecs <= 0) { setCdSecs(CAPTURE_SECS); setPhase('countdown'); return }
+    const t = setTimeout(() => setWaitSecs(s => s - 1), 1000)
+    return () => clearTimeout(t)
+  }, [phase, waitSecs])
+
+  // ── start camera ──────────────────────────────────────────────────────────
+  async function startScan() {
     setErrMsg('')
-
+    setPhase('starting')
     try {
-      // 1. load SDK
-      const rf = await loadSDK()
-
-      // 2. load model with publishable key (safe for browser/client use)
-      const model = await new Promise((resolve, reject) => {
-        rf.auth({ publishable_key: PUBLISHABLE_KEY })
-          .load({ model: MODEL_ID, version: MODEL_VERSION })
-          .then(resolve)
-          .catch(reject)
-      })
-      modelRef.current = model
-
-      // 3. open webcam
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
       })
@@ -208,22 +150,20 @@ export default function PostureGuardian() {
       video.srcObject = stream
       await new Promise(res => { video.onloadedmetadata = res })
       await video.play()
-
-      setStatus('active')
-      timerRef.current = setInterval(runInference, INFER_MS)
+      setCdSecs(CAPTURE_SECS)
+      setPhase('countdown')
     } catch (e) {
-      console.error('[PostureGuardian]', e)
-      setErrMsg(e.message?.slice(0, 120) || 'Something went wrong. Check your key and try again.')
-      setStatus('error')
+      setErrMsg(e.message?.slice(0, 120) || 'Could not access camera.')
+      setPhase('idle')
     }
   }
 
   // ── render ────────────────────────────────────────────────────────────────
-  const isActive = status === 'active'
+  const isLive = phase !== 'idle' && phase !== 'starting'
 
   return (
     <>
-      {/* ── global slouch banner ── */}
+      {/* global slouch banner */}
       <AnimatePresence>
         {isSlouching && (
           <motion.div
@@ -238,38 +178,52 @@ export default function PostureGuardian() {
             <span className="font-extrabold text-ink text-sm">
               Slouch detected — sit up tall and relax your shoulders!
             </span>
-            <span className="text-xs font-bold text-ink-muted ml-1">−{HP_PENALTY} HP</span>
+            <span className="text-xs font-bold text-ink-muted ml-1">−{HP_BAD} HP</span>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* ── main card ── */}
       <div className="card p-6 space-y-4">
 
         {/* header row */}
-        <div className="flex items-start justify-between">
+        <div className="flex items-start justify-between gap-3">
           <div>
             <h2 className="text-lg font-extrabold text-ink">🧍 Posture Guardian</h2>
             <p className="text-sm text-ink-muted font-semibold mt-0.5">
-              {isActive
-                ? `Roboflow AI · inference every ${INFER_MS / 1000}s`
-                : 'Real-time AI posture detection'}
+              {isLive ? 'Roboflow AI · scan-based detection' : 'AI-powered posture scan'}
             </p>
           </div>
-          {isActive && (
-            <motion.button
-              onClick={stop}
-              whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }}
-              className="px-4 py-2 rounded-2xl text-sm font-extrabold bg-peach-light text-peach-dark
-                         hover:bg-peach/40 transition-colors"
-            >
-              Stop
-            </motion.button>
-          )}
+          <div className="flex items-center gap-3 pt-1 flex-shrink-0">
+            {/* scan history dots */}
+            {history.length > 0 && (
+              <div className="flex items-center gap-1.5">
+                {history.map((good, i) => (
+                  <motion.div
+                    key={i}
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    className={`w-3 h-3 rounded-full border-2 ${
+                      good ? 'bg-sage border-sage-dark' : 'bg-peach border-peach-dark'
+                    }`}
+                  />
+                ))}
+              </div>
+            )}
+            {isLive && (
+              <motion.button
+                onClick={stopCamera}
+                whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }}
+                className="px-4 py-2 rounded-2xl text-sm font-extrabold bg-peach-light text-peach-dark
+                           hover:bg-peach/40 transition-colors"
+              >
+                Stop
+              </motion.button>
+            )}
+          </div>
         </div>
 
-        {/* ── IDLE / ERROR: start button + placeholder ── */}
-        {(status === 'idle' || status === 'error') && (
+        {/* ── idle ── */}
+        {phase === 'idle' && (
           <div className="space-y-3">
             {errMsg && (
               <div className="flex items-start gap-2 bg-peach-light text-peach-dark text-sm
@@ -277,8 +231,6 @@ export default function PostureGuardian() {
                 <span>⚠️</span><span>{errMsg}</span>
               </div>
             )}
-
-            {/* camera placeholder + start button */}
             <div className="relative rounded-3xl overflow-hidden bg-cream-dark border-2
                             border-dashed border-lavender/40 flex flex-col items-center
                             justify-center gap-4 py-10">
@@ -287,40 +239,35 @@ export default function PostureGuardian() {
                 Camera feed will appear here
               </span>
               <motion.button
-                onClick={start}
+                onClick={startScan}
                 whileHover={{ scale: 1.04, y: -2 }} whileTap={{ scale: 0.96 }}
                 className="px-8 py-3 rounded-2xl bg-sage text-white font-extrabold text-sm
                            hover:bg-sage-dark transition-colors shadow-soft"
               >
-                Start Camera
+                Start Scan
               </motion.button>
             </div>
           </div>
         )}
 
-        {/* ── LOADING overlay ── */}
-        {status === 'loading' && (
-          <div className="rounded-3xl overflow-hidden bg-ink flex flex-col items-center
-                          justify-center gap-4 py-16">
+        {/* ── starting ── */}
+        {phase === 'starting' && (
+          <div className="rounded-3xl bg-ink flex flex-col items-center justify-center gap-4 py-16">
             <motion.div
               animate={{ rotate: 360 }}
               transition={{ repeat: Infinity, duration: 1.1, ease: 'linear' }}
               className="w-12 h-12 rounded-full border-4 border-lavender/30 border-t-lavender"
             />
-            <p className="text-white font-bold text-sm">Loading Roboflow model…</p>
-            <p className="text-white/40 text-xs font-semibold">This may take a few seconds</p>
+            <p className="text-white font-bold text-sm">Starting camera…</p>
           </div>
         )}
 
         {/*
-          Video element is ALWAYS in the DOM so videoRef stays stable across the
-          loading→active transition. The wrapping div shows/hides it via `hidden`.
-
-          Both video and canvas share scaleX(-1) so Roboflow's original-coordinate
-          predictions land on top of the matching mirrored video pixels.
+          Video wrapper is always in the DOM so videoRef stays stable across
+          starting → countdown. The div is hidden until camera is live.
         */}
         <div
-          className={`relative rounded-3xl overflow-hidden bg-slate-900 ${isActive ? '' : 'hidden'}`}
+          className={`relative rounded-3xl overflow-hidden bg-slate-900 ${isLive ? '' : 'hidden'}`}
           style={{ aspectRatio: '4 / 3' }}
         >
           <video
@@ -329,11 +276,6 @@ export default function PostureGuardian() {
             style={{ transform: 'scaleX(-1)' }}
             playsInline
             muted
-          />
-          <canvas
-            ref={canvasRef}
-            className="absolute inset-0 w-full h-full pointer-events-none"
-            style={{ transform: 'scaleX(-1)' }}
           />
 
           {/* LIVE badge */}
@@ -347,34 +289,137 @@ export default function PostureGuardian() {
             <span className="text-white text-xs font-extrabold tracking-wide">LIVE</span>
           </div>
 
-          {/* Roboflow watermark */}
+          {/* Roboflow badge */}
           <div className="absolute top-3 right-3 bg-black/30 backdrop-blur-sm px-3 py-1
                           rounded-full text-white text-xs font-bold">
             🤖 Roboflow
           </div>
 
-          {/* posture label pill — bottom-center */}
-          <AnimatePresence mode="wait">
-            {label && (
+          {/* 5-second countdown overlay */}
+          <AnimatePresence>
+            {phase === 'countdown' && (
               <motion.div
-                key={label}
-                initial={{ opacity: 0, y: 10, scale: 0.9 }}
-                animate={{ opacity: 1, y: 0,  scale: 1   }}
-                exit={{    opacity: 0,         scale: 0.9 }}
-                transition={{ type: 'spring', stiffness: 340, damping: 22 }}
-                className={`absolute bottom-4 left-1/2 -translate-x-1/2 px-6 py-2.5
-                            rounded-full text-sm font-extrabold backdrop-blur-md shadow-pop
-                            whitespace-nowrap select-none ${
-                              label === 'good'
-                                ? 'bg-sage/90 text-white'
-                                : 'bg-peach-dark/90 text-white'
-                            }`}
+                key="countdown"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="absolute inset-0 flex flex-col items-center justify-center
+                           bg-black/45 backdrop-blur-[2px] gap-2"
               >
-                {label === 'good' ? '✅ Good posture' : '⚠️ Slouching detected!'}
+                <motion.span
+                  key={cdSecs}
+                  initial={{ scale: 1.5, opacity: 0 }}
+                  animate={{ scale: 1,   opacity: 1 }}
+                  transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+                  className="text-8xl font-black text-white tabular-nums leading-none"
+                >
+                  {cdSecs}
+                </motion.span>
+                <p className="text-white/80 font-bold text-sm mt-2">
+                  Hold still — scanning soon
+                </p>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Analysing overlay */}
+          <AnimatePresence>
+            {phase === 'capturing' && (
+              <motion.div
+                key="capturing"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="absolute inset-0 flex flex-col items-center justify-center
+                           bg-black/55 backdrop-blur-sm gap-3"
+              >
+                <motion.div
+                  animate={{ rotate: 360 }}
+                  transition={{ repeat: Infinity, duration: 0.8, ease: 'linear' }}
+                  className="w-10 h-10 rounded-full border-4 border-white/30 border-t-white"
+                />
+                <p className="text-white font-bold text-sm">Analysing posture…</p>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Result overlay (auto-advances after 3.5 s) */}
+          <AnimatePresence>
+            {phase === 'result' && result && (
+              <motion.div
+                key="result"
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                className="absolute bottom-4 left-4 right-4 space-y-2"
+              >
+                <div className={`px-5 py-3.5 rounded-2xl backdrop-blur-md font-extrabold text-sm
+                                 text-center text-white shadow-pop ${
+                                   result.isGood ? 'bg-sage/90' : 'bg-peach-dark/90'
+                                 }`}>
+                  {result.isGood
+                    ? `✅ Great posture! 🎉  +${HP_GOOD} HP`
+                    : `⚠️  You're slouching! Sit up straighter.  −${HP_BAD} HP`}
+                </div>
+                {result.comparison && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.2 }}
+                    className="bg-black/50 backdrop-blur-sm px-4 py-2 rounded-xl
+                               text-white text-xs font-semibold text-center"
+                  >
+                    {result.comparison}
+                  </motion.div>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Next-scan countdown pill */}
+          <AnimatePresence>
+            {phase === 'waiting' && (
+              <motion.div
+                key="waiting"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2
+                           bg-black/40 backdrop-blur-sm px-5 py-2 rounded-full whitespace-nowrap"
+              >
+                <span className="text-white/70 text-xs font-semibold">Next scan in</span>
+                <span className="text-white text-xs font-black tabular-nums">{waitSecs}s</span>
               </motion.div>
             )}
           </AnimatePresence>
         </div>
+
+        {/* last-result summary card (visible while waiting) */}
+        <AnimatePresence>
+          {phase === 'waiting' && result && (
+            <motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className={`flex items-center gap-3 px-4 py-3 rounded-2xl text-sm ${
+                result.isGood
+                  ? 'bg-sage/10 border border-sage/30 text-sage-dark'
+                  : 'bg-peach-light border border-peach text-peach-dark'
+              }`}
+            >
+              <span className="text-lg flex-shrink-0">{result.isGood ? '✅' : '⚠️'}</span>
+              <span className="font-extrabold flex-1">
+                {result.isGood ? 'Good posture last scan' : 'Slouching detected last scan'}
+              </span>
+              {result.comparison && (
+                <span className="text-xs opacity-60 text-right leading-snug max-w-[130px]">
+                  {result.comparison}
+                </span>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
       </div>
     </>
   )
