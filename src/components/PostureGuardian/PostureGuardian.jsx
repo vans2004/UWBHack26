@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useApp } from '../../context/AppContext'
 
 // ─── config ────────────────────────────────────────────────────────────────
+const PUBLISHABLE_KEY = 'rf_hR9zzhlC3FRH2ZZftScPioAFU0S2'  // client-safe publishable key
 const MODEL_ID        = '45cpgzIqMjWlhieTOpld'
 const MODEL_VERSION   = 1
 const INFER_MS        = 1500   // inference every 1.5 s
@@ -115,7 +116,6 @@ export default function PostureGuardian() {
 
   const [status,  setStatus]  = useState('idle')   // idle|loading|active|error
   const [label,   setLabel]   = useState(null)      // 'good'|'slouching'|null
-  const [apiKey,  setApiKey]  = useState(() => localStorage.getItem('bf_rf_key') || '')
   const [errMsg,  setErrMsg]  = useState('')
 
   // ── stop (safe to call any time) ─────────────────────────────────────────
@@ -183,9 +183,6 @@ export default function PostureGuardian() {
 
   // ── start ─────────────────────────────────────────────────────────────────
   async function start() {
-    const key = apiKey.trim()
-    if (!key) { setErrMsg('Please enter your Roboflow publishable key.'); return }
-    localStorage.setItem('bf_rf_key', key)
     setStatus('loading')
     setErrMsg('')
 
@@ -193,9 +190,9 @@ export default function PostureGuardian() {
       // 1. load SDK
       const rf = await loadSDK()
 
-      // 2. load model
+      // 2. load model with publishable key (safe for browser/client use)
       const model = await new Promise((resolve, reject) => {
-        rf.auth({ publishable_key: key })
+        rf.auth({ publishable_key: PUBLISHABLE_KEY })
           .load({ model: MODEL_ID, version: MODEL_VERSION })
           .then(resolve)
           .catch(reject)
@@ -271,7 +268,7 @@ export default function PostureGuardian() {
           )}
         </div>
 
-        {/* ── IDLE / ERROR: key input + placeholder ── */}
+        {/* ── IDLE / ERROR: start button + placeholder ── */}
         {(status === 'idle' || status === 'error') && (
           <div className="space-y-3">
             {errMsg && (
@@ -281,53 +278,22 @@ export default function PostureGuardian() {
               </div>
             )}
 
-            <p className="text-sm text-ink-muted font-medium leading-relaxed">
-              Enter your{' '}
-              <a
-                href="https://app.roboflow.com/settings/api"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-lavender-dark font-bold underline underline-offset-2"
-              >
-                Roboflow publishable key
-              </a>{' '}
-              to run model{' '}
-              <code className="bg-cream-dark px-1.5 py-0.5 rounded text-xs font-mono text-ink-muted">
-                {MODEL_ID}
-              </code>
-              .
-            </p>
-
-            {/* key input row */}
-            <div className="flex gap-2">
-              <input
-                type="password"
-                value={apiKey}
-                onChange={e => setApiKey(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && start()}
-                placeholder="rf_xxxxxxxxxxxxxxxx"
-                className="flex-1 px-4 py-2.5 rounded-2xl border-2 border-lavender text-sm
-                           font-semibold bg-cream-dark placeholder:text-ink-faint
-                           focus:outline-none focus:border-lavender-dark transition-colors"
-              />
-              <motion.button
-                onClick={start}
-                whileHover={{ scale: 1.04, y: -1 }} whileTap={{ scale: 0.96 }}
-                className="px-5 py-2.5 rounded-2xl bg-sage text-white font-extrabold text-sm
-                           hover:bg-sage-dark transition-colors shadow-softer"
-              >
-                Start
-              </motion.button>
-            </div>
-
-            {/* camera placeholder */}
+            {/* camera placeholder + start button */}
             <div className="relative rounded-3xl overflow-hidden bg-cream-dark border-2
                             border-dashed border-lavender/40 flex flex-col items-center
-                            justify-center gap-3 py-10">
+                            justify-center gap-4 py-10">
               <span className="text-5xl">📷</span>
               <span className="text-sm font-bold text-ink-faint">
                 Camera feed will appear here
               </span>
+              <motion.button
+                onClick={start}
+                whileHover={{ scale: 1.04, y: -2 }} whileTap={{ scale: 0.96 }}
+                className="px-8 py-3 rounded-2xl bg-sage text-white font-extrabold text-sm
+                           hover:bg-sage-dark transition-colors shadow-soft"
+              >
+                Start Camera
+              </motion.button>
             </div>
           </div>
         )}

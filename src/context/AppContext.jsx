@@ -6,7 +6,8 @@ const BREAK_TRIGGER_SECONDS = 30 * 60 // 30 minutes
 const HEALTH_DECAY_INTERVAL = 120      // every 2 min, lose 1 hp
 const HEALTH_DECAY_AMOUNT = 1
 const HABIT_HEALTH_BONUS = 10
-const BREAK_HEALTH_BONUS = 20
+const BREAK_HEALTH_BONUS   = 15
+const BREAK_DISMISS_PENALTY = 10
 
 function todayKey() {
   return new Date().toISOString().split('T')[0]
@@ -137,6 +138,13 @@ export function AppProvider({ children }) {
     modalTriggeredRef.current = false
   }, [setPetHealth])
 
+  const dismissBreakChallenge = useCallback(() => {
+    setPetHealth((h) => Math.max(0, h - BREAK_DISMISS_PENALTY))
+    setBreakTimer(0)
+    setShowBreakModal(false)
+    modalTriggeredRef.current = false
+  }, [setPetHealth])
+
   const petMood =
     petHealth >= 75 ? 'happy' : petHealth >= 50 ? 'neutral' : petHealth >= 25 ? 'sad' : 'sick'
 
@@ -154,6 +162,7 @@ export function AppProvider({ children }) {
     completeHabit,
     uncompleteHabit,
     completeBreakChallenge,
+    dismissBreakChallenge,
     setPetHealth,
     BREAK_TRIGGER_SECONDS,
   }
