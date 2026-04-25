@@ -1,7 +1,6 @@
 import { motion, AnimatePresence } from 'framer-motion'
 import { useRef, useEffect, useState } from 'react'
 import { useApp } from '../../context/AppContext'
-import { PetSprite } from './PetSprites'
 
 const MOOD_META = {
   happy:   { label: '😄 Happy!',          bg: 'from-sage-light to-white',     bar: '#72B896', badge: 'bg-sage-light   text-sage-dark'   },
@@ -77,13 +76,21 @@ export default function VirtualPet() {
       {/* pet + heart pop */}
       <div className="relative flex-1 flex items-center justify-center py-2">
         <HeartPop trigger={heartKey} />
-        <motion.div
+        <motion.img
+          src="/dino-avatar.png"
+          alt={`Spine-o-saur — ${petMood}`}
           animate={pm.animate}
           transition={pm.transition}
-          style={{ filter: 'drop-shadow(0 12px 24px rgba(100,80,160,0.18))' }}
-        >
-          <PetSprite mood={petMood} size={210} />
-        </motion.div>
+          className="w-56 h-56 object-contain"
+          style={{
+            filter: {
+              happy:   'drop-shadow(0 12px 24px rgba(100,160,120,0.25)) saturate(1.15) brightness(1.05)',
+              neutral: 'drop-shadow(0 10px 20px rgba(100,120,180,0.2)) saturate(0.85)',
+              sad:     'drop-shadow(0 10px 20px rgba(80,90,160,0.2)) saturate(0.55) brightness(0.88)',
+              sick:    'drop-shadow(0 10px 20px rgba(80,160,80,0.2)) saturate(0.6) brightness(0.85) hue-rotate(15deg)',
+            }[petMood],
+          }}
+        />
       </div>
 
       {/* health bar */}

@@ -5,7 +5,7 @@ const AppContext = createContext(null)
 const BREAK_TRIGGER_SECONDS = 30 * 60 // 30 minutes
 const HEALTH_DECAY_INTERVAL = 120      // every 2 min, lose 1 hp
 const HEALTH_DECAY_AMOUNT = 1
-const HABIT_HEALTH_BONUS = 10
+const CHECKPOINT_HP = 3               // HP per completed checkpoint
 const BREAK_HEALTH_BONUS   = 15
 const BREAK_DISMISS_PENALTY = 10
 
@@ -28,7 +28,12 @@ function saveLS(key, value) {
   } catch {}
 }
 
-const DEFAULT_HABITS = { water: false, sleep: false, move: false, outside: false }
+const DEFAULT_CHECKPOINTS = {
+  water:   { morning: false, midday: false, afternoon: false, evening: false },
+  sleep:   { noscreen: false, bedtime: false, slept: false },
+  move:    { stretch: false, walk: false, workout: false },
+  outside: { morning: false, lunch: false, evening: false },
+}
 
 const BREAK_CHALLENGES = [
   { emoji: '🤸', text: 'Do 10 shoulder rolls — each direction!' },
@@ -45,17 +50,22 @@ export function AppProvider({ children }) {
   // petHealth persisted
   const [petHealth, setPetHealthRaw] = useState(() => loadLS('bf_petHealth', 70))
 
-  // habits with daily reset
-  const [habits, setHabitsRaw] = useState(() => {
+  // checkpoints with daily reset
+  const [checkpoints, setCheckpointsRaw] = useState(() => {
     const savedDate = loadLS('bf_habitDate', '')
     const today = todayKey()
     if (savedDate !== today) {
       saveLS('bf_habitDate', today)
-      saveLS('bf_habits', DEFAULT_HABITS)
-      return DEFAULT_HABITS
+      saveLS('bf_checkpoints', DEFAULT_CHECKPOINTS)
+      return DEFAULT_CHECKPOINTS
     }
-    return loadLS('bf_habits', DEFAULT_HABITS)
+    return loadLS('bf_checkpoints', DEFAULT_CHECKPOINTS)
   })
+
+  // derived: habit is "done" when all its checkpoints are completed
+  const habits = Object.fromEntries(
+    Object.entries(checkpoints).map(([key, cps]) => [key, Object.values(cps).every(Boolean)])
+  )
 
   // session timer (resets on page load — not persisted)
   const [breakTimer, setBreakTimer] = useState(0)
@@ -76,10 +86,10 @@ export function AppProvider({ children }) {
     })
   }, [])
 
-  const setHabits = useCallback((updater) => {
-    setHabitsRaw((prev) => {
+  const setCheckpoints = useCallback((updater) => {
+    setCheckpointsRaw((prev) => {
       const next = typeof updater === 'function' ? updater(prev) : updater
-      saveLS('bf_habits', next)
+      saveLS('bf_checkpoints', next)
       saveLS('bf_habitDate', todayKey())
       return next
     })
@@ -111,24 +121,30 @@ export function AppProvider({ children }) {
     return () => clearInterval(id)
   }, [setPetHealth])
 
-  const completeHabit = useCallback(
-    (name) => {
-      if (!habits[name]) {
-        setHabits((h) => ({ ...h, [name]: true }))
-        setPetHealth((h) => h + HABIT_HEALTH_BONUS)
+  const completeCheckpoint = useCallback(
+    (habitKey, cpId) => {
+      if (!checkpoints[habitKey]?.[cpId]) {
+        setCheckpoints((prev) => ({
+          ...prev,
+          [habitKey]: { ...prev[habitKey], [cpId]: true },
+        }))
+        setPetHealth((h) => h + CHECKPOINT_HP)
       }
     },
-    [habits, setHabits, setPetHealth],
+    [checkpoints, setCheckpoints, setPetHealth],
   )
 
-  const uncompleteHabit = useCallback(
-    (name) => {
-      if (habits[name]) {
-        setHabits((h) => ({ ...h, [name]: false }))
-        setPetHealth((h) => h - HABIT_HEALTH_BONUS)
+  const uncompleteCheckpoint = useCallback(
+    (habitKey, cpId) => {
+      if (checkpoints[habitKey]?.[cpId]) {
+        setCheckpoints((prev) => ({
+          ...prev,
+          [habitKey]: { ...prev[habitKey], [cpId]: false },
+        }))
+        setPetHealth((h) => Math.max(0, h - CHECKPOINT_HP))
       }
     },
-    [habits, setHabits, setPetHealth],
+    [checkpoints, setCheckpoints, setPetHealth],
   )
 
   const completeBreakChallenge = useCallback(() => {
@@ -152,6 +168,7 @@ export function AppProvider({ children }) {
     petHealth,
     petMood,
     habits,
+    checkpoints,
     breakTimer,
     showBreakModal,
     currentChallenge,
@@ -159,12 +176,13 @@ export function AppProvider({ children }) {
     setIsSlouching,
     postureEnabled,
     setPostureEnabled,
-    completeHabit,
-    uncompleteHabit,
+    completeCheckpoint,
+    uncompleteCheckpoint,
     completeBreakChallenge,
     dismissBreakChallenge,
     setPetHealth,
     BREAK_TRIGGER_SECONDS,
+    CHECKPOINT_HP,
   }
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>

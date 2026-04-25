@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useApp } from '../../context/AppContext'
-import { PetSprite } from '../VirtualPet/PetSprites'
 
 const COUNTDOWN_SECS = 30
 
@@ -71,14 +70,15 @@ function PetIllustration() {
         </motion.span>
       ))}
 
-      {/* pet — sad mood, looking up at user */}
-      <motion.div
+      {/* pet — sad mood */}
+      <motion.img
+        src="/dino-avatar.png"
+        alt="Spine-o-saur needs a break"
         animate={{ y: [0, -5, 0] }}
         transition={{ repeat: Infinity, duration: 2, ease: 'easeInOut' }}
-        style={{ filter: 'drop-shadow(0 8px 16px rgba(100,80,160,0.18))' }}
-      >
-        <PetSprite mood="sad" size={110} />
-      </motion.div>
+        className="w-24 h-24 object-contain"
+        style={{ filter: 'saturate(0.55) brightness(0.88) drop-shadow(0 8px 16px rgba(80,90,160,0.2))' }}
+      />
 
       {/* speech bubble */}
       <div className="relative mb-6">

@@ -21,13 +21,15 @@ function Navbar() {
     <nav className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-lavender-light shadow-softer">
       <div className="min-w-[1024px] max-w-[1400px] mx-auto px-6 h-16 flex items-center justify-between">
         {/* brand */}
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-sage flex items-center justify-center text-xl shadow-soft">
-            🌿
-          </div>
+        <div className="flex items-center gap-2.5">
+          <img
+            src="/dino.jpg"
+            alt="Spine-o-saur dino"
+            className="w-11 h-11 rounded-2xl object-cover shadow-soft"
+          />
           <div>
-            <span className="text-xl font-black text-ink tracking-tight">BreakFree</span>
-            <span className="hidden lg:inline text-sm text-ink-muted font-bold ml-3">Your Wellness Buddy</span>
+            <span className="text-xl font-black text-ink tracking-tight">Spine-o-saur</span>
+            <span className="hidden lg:inline text-sm text-ink-muted font-bold ml-3">Posture Management</span>
           </div>
         </div>
 
@@ -66,7 +68,7 @@ function Layout() {
       </main>
 
       <footer className="min-w-[1024px] text-center text-xs text-ink-faint font-bold py-8">
-        made with 💚 at UWBHack '26
+        made with 🦕 at UWBHack '26
       </footer>
 
       <ResetModal />

@@ -31,7 +31,12 @@ async function captureAndInfer(video) {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: base64,
   })
-  if (!res.ok) throw new Error(`API error ${res.status}`)
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    let detail = ''
+    try { detail = ': ' + JSON.parse(body).message } catch { detail = body ? ': ' + body.slice(0, 100) : '' }
+    throw new Error(`API error ${res.status}${detail}`)
+  }
   const data  = await res.json()
   const preds = data.predictions ?? []
   if (!preds.length) return { isGood: true }
