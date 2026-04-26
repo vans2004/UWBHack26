@@ -271,24 +271,68 @@ export default function PostureGuardian() {
           className={`relative rounded-3xl overflow-hidden bg-slate-900 ${isLive ? '' : 'hidden'}`}
           style={{ aspectRatio: '4 / 3' }}
         >
-          <video
-            ref={videoRef}
-            className="absolute inset-0 w-full h-full object-fill"
-            style={{ transform: 'scaleX(-1)' }}
-            playsInline
-            muted
-          />
-
-          {/* LIVE badge */}
-          <div className="absolute top-3 left-3 flex items-center gap-1.5 bg-black/30
-                          backdrop-blur-sm px-3 py-1.5 rounded-full">
-            <motion.span
-              className="w-2 h-2 rounded-full bg-red-400 block"
-              animate={{ opacity: [1, 0.2, 1] }}
-              transition={{ repeat: Infinity, duration: 1.2 }}
+            <video
+              ref={videoRef}
+              className="absolute inset-0 w-full h-full object-fill"
+              style={{ transform: 'scaleX(-1)' }}
+              playsInline
+              muted
             />
-            <span className="text-white text-xs font-extrabold tracking-wide">LIVE</span>
-          </div>
+
+            {/* Clearer Positioning Frame - Active during countdown and capturing */}
+            <AnimatePresence>
+              {(phase === 'countdown' || phase === 'capturing') && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="absolute inset-0 pointer-events-none"
+                >
+                  {/* SVG Mask: Creates a "cutout" effect to focus the user */}
+                  <svg className="w-full h-full" viewBox="0 0 400 300" preserveAspectRatio="xMidYMid slice">
+                    <defs>
+                      <mask id="guide-mask">
+                        <rect width="400" height="300" fill="white" />
+                        {/* Head cutout */}
+                        <ellipse cx="200" cy="110" rx="55" ry="75" fill="black" />
+                        {/* Shoulders cutout */}
+                        <path d="M 100 280 Q 100 190 200 190 Q 300 190 300 280" fill="black" />
+                      </mask>
+                    </defs>
+                    
+                    {/* Dimmed background overlay */}
+                    <rect width="400" height="300" fill="rgba(0,0,0,0.5)" mask="url(#guide-mask)" />
+
+                    {/* Glowing sharp outlines */}
+                    <g stroke="white" strokeWidth="2.5" fill="none" className="drop-shadow-md">
+                      <ellipse cx="200" cy="110" rx="55" ry="75" />
+                      <path d="M 100 280 Q 100 190 200 190 Q 300 190 300 280" />
+                      
+                      {/* Center target crosshair */}
+                      <line x1="192" y1="110" x2="208" y2="110" strokeWidth="1.5" />
+                      <line x1="200" y1="102" x2="200" y2="118" strokeWidth="1.5" />
+                    </g>
+                  </svg>
+
+                  {/* High-visibility label */}
+                  <div className="absolute top-[20%] left-1/2 -translate-x-1/2">
+                    <div className="bg-white text-ink px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest shadow-lg border-2 border-sage">
+                      Align Head & Shoulders
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Existing Overlays (LIVE badge, Roboflow badge, etc.) */}
+            <div className="absolute top-3 left-3 flex items-center gap-1.5 bg-black/30 backdrop-blur-sm px-3 py-1.5 rounded-full">
+              <motion.span
+                className="w-2 h-2 rounded-full bg-red-400 block"
+                animate={{ opacity: [1, 0.2, 1] }}
+                transition={{ repeat: Infinity, duration: 1.2 }}
+              />
+              <span className="text-white text-xs font-extrabold tracking-wide">LIVE</span>
+            </div>
 
           {/* Roboflow badge */}
           <div className="absolute top-3 right-3 bg-black/30 backdrop-blur-sm px-3 py-1

@@ -11,6 +11,8 @@ import Workouts from './components/Workouts/Workouts'
 import LoginScreen from './components/Auth/LoginScreen'
 import Notifications from './components/Notifications/Notifications'
 import ScreenTimeLimitModal from './components/ScreenTimeLimitModal/ScreenTimeLimitModal'
+import PostureReminder from './components/PostureReminder/PostureReminder'
+import ProfilePage from './components/Profile/ProfilePage'
 
 function fmt(secs) {
   const m = Math.floor(secs / 60)
@@ -22,6 +24,7 @@ const TABS = [
   { id: 'home',     label: '🏠 Home'     },
   { id: 'tips',     label: '💡 Tips'     },
   { id: 'workouts', label: '💪 Workouts' },
+  { id: 'profile',  label: '👤 Profile'  },
 ]
 
 function Navbar({ activeTab, setActiveTab }) {
@@ -132,6 +135,7 @@ function Layout() {
           )}
           {activeTab === 'tips' && <PostureTips />}
           {activeTab === 'workouts' && <Workouts />}
+          {activeTab === 'profile' && <ProfilePage />}
         </div>
       </main>
 
@@ -141,6 +145,7 @@ function Layout() {
 
       <ResetModal />
       <Notifications />
+      <PostureReminder />
       {showScreenTimeModal && (
         <ScreenTimeLimitModal
           onConfirm={handleScreenTimeConfirm}

@@ -26,10 +26,42 @@ function Toast({ id, emoji, message, onDismiss }) {
   )
 }
 
+function NudgeModal({ emoji, from, message, onDismiss }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm pointer-events-auto"
+      onClick={onDismiss}
+    >
+      <motion.div
+        initial={{ scale: 0.85, opacity: 0, y: 20 }}
+        animate={{ scale: 1, opacity: 1, y: 0 }}
+        exit={{ scale: 0.85, opacity: 0, y: 20 }}
+        transition={{ type: 'spring', stiffness: 300, damping: 26 }}
+        className="bg-white rounded-3xl shadow-2xl max-w-sm w-full mx-4 p-8 text-center pointer-events-auto"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="text-6xl mb-4">{emoji}</div>
+        <p className="text-lg font-black text-ink mb-2">{from} says:</p>
+        <p className="text-2xl font-black text-lavender-dark mb-6">{message}</p>
+        <button
+          onClick={onDismiss}
+          className="w-full px-6 py-3 bg-lavender text-white font-extrabold rounded-2xl hover:bg-lavender-dark transition-colors"
+        >
+          Got it! 👋
+        </button>
+      </motion.div>
+    </motion.div>
+  )
+}
+
 export default function Notifications() {
   const { postureScans, checkpoints } = useApp()
   const { currentUser } = useAuth()
   const [toasts, setToasts] = useState([])
+  const [nudgeModal, setNudgeModal] = useState(null)
 
   const checkpointsRef = useRef(checkpoints)
   checkpointsRef.current = checkpoints
@@ -42,6 +74,18 @@ export default function Notifications() {
 
   const removeToast = useCallback((id) => {
     setToasts(prev => prev.filter(t => t.id !== id))
+  }, [])
+
+  // ── Demo nudge pop-up: 30 seconds after app loads ──────────────────────────
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setNudgeModal({
+        emoji: '🧘',
+        from: 'Alex',
+        message: 'Sit up straight! 🧘',
+      })
+    }, 30000)
+    return () => clearTimeout(timer)
   }, [])
 
   // ── Camera notification ───────────────────────────────────────────────────
@@ -159,12 +203,25 @@ export default function Notifications() {
   }, [addToast])
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-3 items-end pointer-events-none">
+    <>
+      <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-3 items-end pointer-events-none">
+        <AnimatePresence>
+          {toasts.map(toast => (
+            <Toast key={toast.id} {...toast} onDismiss={removeToast} />
+          ))}
+        </AnimatePresence>
+      </div>
+
+      {/* Nudge modal pop-up */}
       <AnimatePresence>
-        {toasts.map(toast => (
-          <Toast key={toast.id} {...toast} onDismiss={removeToast} />
-        ))}
+        {nudgeModal && (
+          <NudgeModal
+            key="nudge-modal"
+            {...nudgeModal}
+            onDismiss={() => setNudgeModal(null)}
+          />
+        )}
       </AnimatePresence>
-    </div>
+    </>
   )
 }
