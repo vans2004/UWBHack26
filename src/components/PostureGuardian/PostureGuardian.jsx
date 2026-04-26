@@ -3,21 +3,16 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useApp } from '../../context/AppContext'
 
 // ─── config ────────────────────────────────────────────────────────────────
-const API_KEY      = 'rf_hR9zzhlC3FRH2ZZftScPioAFU0S2'
-const API_URL      = `https://detect.roboflow.com/posture_correction_v4/4?api_key=${API_KEY}`
+const API_KEY      = 'ehRIPfDmfJeKN2n3Y3i2'
+const API_URL      = `http://localhost:9001/posture_correction_v4-2aqwr/1?api_key=${API_KEY}`
 const CAPTURE_SECS = 5
-const WAIT_SECS    = 30
+const WAIT_SECS    = 10
 const HP_GOOD      = 5
 const HP_BAD       = 3
 const MAX_HISTORY  = 3
 
 function isBadPosture(cls = '') {
-  const l = cls.toLowerCase()
-  return (
-    l.includes('bad') || l.includes('slouch') || l.includes('poor') ||
-    l.includes('incorrect') || l.includes('wrong') || l.includes('hunched') ||
-    l.includes('forward') || l.includes('round')
-  )
+  return cls.toLowerCase() !== 'looks good'
 }
 
 async function captureAndInfer(video) {
@@ -31,12 +26,16 @@ async function captureAndInfer(video) {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: base64,
   })
-  if (!res.ok) throw new Error(`API error ${res.status}`)
-  const data  = await res.json()
-  const preds = data.predictions ?? []
-  if (!preds.length) return { isGood: true }
-  const top = [...preds].sort((a, b) => b.confidence - a.confidence)[0]
-  return { isGood: !isBadPosture(top.class) }
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    let detail = ''
+    try { detail = ': ' + JSON.parse(body).message } catch { detail = body ? ': ' + body.slice(0, 100) : '' }
+    throw new Error(`API error ${res.status}${detail}`)
+  }
+  const data = await res.json()
+  console.log('[PostureGuardian] raw output:', JSON.stringify(data))
+  const topClass = data.predicted_class ?? data.top ?? data.class ?? ''
+  return { isGood: !isBadPosture(topClass) }
 }
 
 // ─── component ─────────────────────────────────────────────────────────────
