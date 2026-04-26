@@ -36,6 +36,8 @@ function HeartPop({ trigger }) {
   )
 }
 
+const TOTAL_TIPS = 8
+
 export default function VirtualPet() {
   const { petHealth, petMood } = useApp()
   const meta = MOOD_META[petMood]
@@ -43,11 +45,20 @@ export default function VirtualPet() {
 
   const prevHealth = useRef(petHealth)
   const [heartKey, setHeartKey] = useState(null)
+  const [followedTips, setFollowedTips] = useState(() =>
+    JSON.parse(localStorage.getItem('bf_followedTips') || '[]')
+  )
 
   useEffect(() => {
     if (petHealth > prevHealth.current) setHeartKey(Date.now())
     prevHealth.current = petHealth
   }, [petHealth])
+
+  useEffect(() => {
+    const handler = (e) => setFollowedTips(e.detail)
+    window.addEventListener('bf-followed-tips-updated', handler)
+    return () => window.removeEventListener('bf-followed-tips-updated', handler)
+  }, [])
 
   const barColor = petHealth >= 75 ? '#72B896' : petHealth >= 50 ? '#8AAEE0' : petHealth >= 25 ? '#9B87D4' : '#FF8C5A'
 
@@ -113,6 +124,28 @@ export default function VirtualPet() {
             className="h-full rounded-full"
             style={{ backgroundColor: barColor }}
             animate={{ width: `${petHealth}%` }}
+            transition={{ duration: 0.7, ease: 'easeOut' }}
+          />
+        </div>
+
+        {/* posture habits bar */}
+        <div className="flex justify-between items-center">
+          <span className="font-bold text-ink text-sm">🧘 Posture Habits</span>
+          <motion.span
+            key={followedTips.length}
+            initial={{ scale: 1.2 }}
+            animate={{ scale: 1 }}
+            className="font-extrabold text-sm tabular-nums"
+            style={{ color: '#9B87D4' }}
+          >
+            {followedTips.length}<span className="font-semibold text-ink-faint">/{TOTAL_TIPS}</span>
+          </motion.span>
+        </div>
+        <div className="h-3 bg-cream-dark rounded-full overflow-hidden">
+          <motion.div
+            className="h-full rounded-full"
+            style={{ backgroundColor: '#9B87D4' }}
+            animate={{ width: `${(followedTips.length / TOTAL_TIPS) * 100}%` }}
             transition={{ duration: 0.7, ease: 'easeOut' }}
           />
         </div>

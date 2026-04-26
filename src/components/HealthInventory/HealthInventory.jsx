@@ -143,6 +143,19 @@ function CheckInModal({ habit, habitCheckpoints, onToggle, onClose }) {
           </div>
         </div>
 
+        {/* deselect all button */}
+        {done > 0 && (
+          <div className="px-4 pb-2 flex justify-end">
+            <button
+              onClick={() => habit.checkpoints.filter(cp => habitCheckpoints?.[cp.id]).forEach(cp => onToggle(cp.id))}
+              className="text-xs font-bold px-3 py-1 rounded-full transition-colors"
+              style={{ backgroundColor: 'rgba(255,255,255,0.6)', color: habit.check }}
+            >
+              Deselect All
+            </button>
+          </div>
+        )}
+
         {/* checkpoint rows */}
         <div className="px-4 pb-4 space-y-2">
           {habit.checkpoints.map((cp, i) => {
