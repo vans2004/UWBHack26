@@ -2,11 +2,10 @@ import { createContext, useContext, useState, useEffect, useCallback, useRef } f
 
 const AppContext = createContext(null)
 
-const BREAK_TRIGGER_SECONDS = 30 * 60 // 30 minutes
-const HEALTH_DECAY_INTERVAL = 120      // every 2 min, lose 1 hp
+const HEALTH_DECAY_INTERVAL = 120
 const HEALTH_DECAY_AMOUNT = 1
-const CHECKPOINT_HP = 3               // HP per completed checkpoint
-const BREAK_HEALTH_BONUS   = 15
+const CHECKPOINT_HP = 3
+const BREAK_HEALTH_BONUS = 15
 const BREAK_DISMISS_PENALTY = 10
 
 function todayKey() {
@@ -28,6 +27,17 @@ function saveLS(key, value) {
   } catch {}
 }
 
+// Epoch stored in sessionStorage — survives tab switches, resets on page/browser close.
+function loadTimerEpoch() {
+  try {
+    const stored = sessionStorage.getItem('spos_timerEpoch')
+    if (stored) return parseInt(stored, 10)
+  } catch {}
+  const now = Date.now()
+  try { sessionStorage.setItem('spos_timerEpoch', String(now)) } catch {}
+  return now
+}
+
 const DEFAULT_CHECKPOINTS = {
   water:   { morning: false, midday: false, afternoon: false, evening: false },
   sleep:   { noscreen: false, bedtime: false, slept: false },
@@ -46,11 +56,9 @@ const BREAK_CHALLENGES = [
   { emoji: '🌬️', text: 'Open a window and take 3 breaths of fresh air.' },
 ]
 
-export function AppProvider({ children }) {
-  // petHealth persisted
+export function AppProvider({ children, username }) {
   const [petHealth, setPetHealthRaw] = useState(() => loadLS('bf_petHealth', 70))
 
-  // checkpoints with daily reset
   const [checkpoints, setCheckpointsRaw] = useState(() => {
     const savedDate = loadLS('bf_habitDate', '')
     const today = todayKey()
@@ -62,20 +70,38 @@ export function AppProvider({ children }) {
     return loadLS('bf_checkpoints', DEFAULT_CHECKPOINTS)
   })
 
-  // derived: habit is "done" when all its checkpoints are completed
   const habits = Object.fromEntries(
     Object.entries(checkpoints).map(([key, cps]) => [key, Object.values(cps).every(Boolean)])
   )
 
-  // session timer (resets on page load — not persisted)
-  const [breakTimer, setBreakTimer] = useState(0)
+  // Wall-clock timer — epoch is pinned to sessionStorage so background throttling
+  // and tab switches don't cause drift.
+  const timerEpochRef = useRef(loadTimerEpoch())
+  const initialElapsed = Math.floor((Date.now() - timerEpochRef.current) / 1000)
+  // Track the last second at which health decay was applied so catch-up works on wake.
+  const lastDecaySecRef = useRef(
+    Math.floor(initialElapsed / HEALTH_DECAY_INTERVAL) * HEALTH_DECAY_INTERVAL
+  )
+
+  const [breakTimer, setBreakTimer] = useState(initialElapsed)
   const [showBreakModal, setShowBreakModal] = useState(false)
   const [currentChallenge, setCurrentChallenge] = useState(null)
   const [isSlouching, setIsSlouching] = useState(false)
   const [postureEnabled, setPostureEnabled] = useState(false)
 
-  // track whether modal was already triggered this cycle
-  const modalTriggeredRef = useRef(false)
+  // Posture scan history (max 3), shared with Notifications
+  const [postureScans, setPostureScansRaw] = useState([])
+
+  // Per-user break interval preference
+  const biKey = `spos_bi_${username}`
+  const [breakIntervalMins, setBreakIntervalMinsRaw] = useState(
+    () => loadLS(biKey, 30)
+  )
+
+  const BREAK_TRIGGER_SECONDS = breakIntervalMins * 60
+
+  // Initialise modal-triggered state based on resume position
+  const modalTriggeredRef = useRef(initialElapsed >= BREAK_TRIGGER_SECONDS)
 
   const setPetHealth = useCallback((updater) => {
     setPetHealthRaw((prev) => {
@@ -95,31 +121,56 @@ export function AppProvider({ children }) {
     })
   }, [])
 
-  // main 1-second tick
+  // Anchor the timer to now; used by break-complete, dismiss, and interval-change.
+  const resetTimer = useCallback(() => {
+    const now = Date.now()
+    timerEpochRef.current = now
+    lastDecaySecRef.current = 0
+    try { sessionStorage.setItem('spos_timerEpoch', String(now)) } catch {}
+    setBreakTimer(0)
+    setShowBreakModal(false)
+    modalTriggeredRef.current = false
+  }, [])
+
+  const setBreakIntervalMins = useCallback((mins) => {
+    saveLS(`spos_bi_${username}`, mins)
+    setBreakIntervalMinsRaw(mins)
+    resetTimer()
+  }, [username, resetTimer])
+
+  const recordPostureScan = useCallback((isGood) => {
+    setPostureScansRaw(prev => [...prev, isGood].slice(-3))
+  }, [])
+
+  const resetPostureScans = useCallback(() => {
+    setPostureScansRaw([])
+  }, [])
+
+  // Main 1-second tick using real wall-clock elapsed time.
+  // Re-runs when BREAK_TRIGGER_SECONDS changes (interval selector).
   useEffect(() => {
     const id = setInterval(() => {
-      setBreakTimer((prev) => {
-        const next = prev + 1
+      const elapsed = Math.floor((Date.now() - timerEpochRef.current) / 1000)
 
-        // trigger break modal
-        if (next >= BREAK_TRIGGER_SECONDS && !modalTriggeredRef.current) {
-          modalTriggeredRef.current = true
-          const challenge = BREAK_CHALLENGES[Math.floor(Math.random() * BREAK_CHALLENGES.length)]
-          setCurrentChallenge(challenge)
-          setShowBreakModal(true)
-        }
+      // Break modal
+      if (elapsed >= BREAK_TRIGGER_SECONDS && !modalTriggeredRef.current) {
+        modalTriggeredRef.current = true
+        const challenge = BREAK_CHALLENGES[Math.floor(Math.random() * BREAK_CHALLENGES.length)]
+        setCurrentChallenge(challenge)
+        setShowBreakModal(true)
+      }
 
-        // health decay every HEALTH_DECAY_INTERVAL seconds
-        if (next % HEALTH_DECAY_INTERVAL === 0) {
-          const extra = next >= BREAK_TRIGGER_SECONDS ? HEALTH_DECAY_AMOUNT : 0
-          setPetHealth((h) => Math.max(0, h - HEALTH_DECAY_AMOUNT - extra))
-        }
+      // Health decay — while-loop catches intervals missed while tab was backgrounded
+      while (lastDecaySecRef.current + HEALTH_DECAY_INTERVAL <= elapsed) {
+        lastDecaySecRef.current += HEALTH_DECAY_INTERVAL
+        const extra = elapsed >= BREAK_TRIGGER_SECONDS ? HEALTH_DECAY_AMOUNT : 0
+        setPetHealth(h => Math.max(0, h - HEALTH_DECAY_AMOUNT - extra))
+      }
 
-        return next
-      })
+      setBreakTimer(elapsed)
     }, 1000)
     return () => clearInterval(id)
-  }, [setPetHealth])
+  }, [setPetHealth, BREAK_TRIGGER_SECONDS])
 
   const completeCheckpoint = useCallback(
     (habitKey, cpId) => {
@@ -149,17 +200,13 @@ export function AppProvider({ children }) {
 
   const completeBreakChallenge = useCallback(() => {
     setPetHealth((h) => h + BREAK_HEALTH_BONUS)
-    setBreakTimer(0)
-    setShowBreakModal(false)
-    modalTriggeredRef.current = false
-  }, [setPetHealth])
+    resetTimer()
+  }, [setPetHealth, resetTimer])
 
   const dismissBreakChallenge = useCallback(() => {
     setPetHealth((h) => Math.max(0, h - BREAK_DISMISS_PENALTY))
-    setBreakTimer(0)
-    setShowBreakModal(false)
-    modalTriggeredRef.current = false
-  }, [setPetHealth])
+    resetTimer()
+  }, [setPetHealth, resetTimer])
 
   const petMood =
     petHealth >= 75 ? 'happy' : petHealth >= 50 ? 'neutral' : petHealth >= 25 ? 'sad' : 'sick'
@@ -176,11 +223,16 @@ export function AppProvider({ children }) {
     setIsSlouching,
     postureEnabled,
     setPostureEnabled,
+    postureScans,
+    recordPostureScan,
+    resetPostureScans,
     completeCheckpoint,
     uncompleteCheckpoint,
     completeBreakChallenge,
     dismissBreakChallenge,
     setPetHealth,
+    breakIntervalMins,
+    setBreakIntervalMins,
     BREAK_TRIGGER_SECONDS,
     CHECKPOINT_HP,
   }

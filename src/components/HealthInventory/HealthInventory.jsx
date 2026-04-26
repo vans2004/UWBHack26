@@ -243,11 +243,22 @@ export default function HealthInventory() {
     }
   }
 
+  const isReminderActive = (() => {
+    const h = new Date().getHours()
+    return h >= 14 && totalDone < 3
+  })()
+
   return (
     <div className="card p-6">
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h2 className="text-lg font-extrabold text-ink">✅ Daily Check-In</h2>
+          <motion.h2
+            className="text-lg font-extrabold text-ink"
+            animate={isReminderActive ? { scale: [1, 1.04, 1] } : { scale: 1 }}
+            transition={isReminderActive ? { repeat: Infinity, duration: 2, ease: 'easeInOut' } : {}}
+          >
+            ✅ Daily Check-In
+          </motion.h2>
           <p className="text-sm text-ink-muted font-semibold mt-0.5">
             Check in at each checkpoint to heal your buddy
           </p>

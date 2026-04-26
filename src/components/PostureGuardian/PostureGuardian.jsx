@@ -40,7 +40,7 @@ async function captureAndInfer(video) {
 
 // ─── component ─────────────────────────────────────────────────────────────
 export default function PostureGuardian() {
-  const { isSlouching, setIsSlouching, setPetHealth } = useApp()
+  const { isSlouching, setIsSlouching, setPetHealth, recordPostureScan, resetPostureScans } = useApp()
 
   const videoRef   = useRef(null)
   const streamRef  = useRef(null)
@@ -60,6 +60,7 @@ export default function PostureGuardian() {
     streamRef.current = null
     if (videoRef.current) videoRef.current.srcObject = null
     setIsSlouching(false)
+    resetPostureScans()
     historyRef.current = []
     setHistory([])
     setResult(null)
@@ -98,6 +99,7 @@ export default function PostureGuardian() {
       historyRef.current = [...historyRef.current, isGood].slice(-MAX_HISTORY)
       setHistory([...historyRef.current])
       setResult({ isGood, comparison })
+      recordPostureScan(isGood)
       setPhase('result')
     } catch (e) {
       // stop camera and surface error

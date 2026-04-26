@@ -119,19 +119,27 @@ export default function VirtualPet() {
 
         <div className="flex justify-between text-lg pt-0.5">
           {[
-            { e: '😷', lo: 0,  hi: 25  },
-            { e: '😢', lo: 25, hi: 50  },
-            { e: '😐', lo: 50, hi: 75  },
-            { e: '😄', lo: 75, hi: 101 },
-          ].map(({ e, lo, hi }) => (
-            <span
-              key={lo}
-              className="transition-all duration-300 cursor-default"
-              style={{ opacity: petHealth >= lo && petHealth < hi ? 1 : 0.18, transform: petHealth >= lo && petHealth < hi ? 'scale(1.25)' : 'scale(1)' }}
-            >
-              {e}
-            </span>
-          ))}
+            { e: '😵', lo: 0,  hi: 20  },
+            { e: '😟', lo: 20, hi: 40  },
+            { e: '😐', lo: 40, hi: 60  },
+            { e: '🙂', lo: 60, hi: 80  },
+            { e: '😄', lo: 80, hi: 101 },
+          ].map(({ e, lo, hi }) => {
+            const active = petHealth >= lo && petHealth < hi
+            return (
+              <span
+                key={lo}
+                className="transition-all duration-300 cursor-default select-none"
+                style={{
+                  opacity: active ? 1 : 0.18,
+                  transform: active ? 'scale(1.35)' : 'scale(1)',
+                  filter: active ? 'none' : 'grayscale(1)',
+                }}
+              >
+                {e}
+              </span>
+            )
+          })}
         </div>
 
         <AnimatePresence mode="wait">
