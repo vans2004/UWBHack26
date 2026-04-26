@@ -128,7 +128,7 @@ function ChallengeIcon({ emoji }) {
 
 // ── Main modal ────────────────────────────────────────────────────────────────
 export default function ResetModal() {
-  const { showBreakModal, currentChallenge, completeBreakChallenge, dismissBreakChallenge } = useApp()
+  const { showBreakModal, currentChallenge, completeBreakChallenge, dismissBreakChallenge, breakIntervalMins } = useApp()
   const [countdown, setCountdown] = useState(COUNTDOWN_SECS)
   const [skipping,  setSkipping]  = useState(false)  // confirm step
 
@@ -173,7 +173,7 @@ export default function ResetModal() {
                 </motion.div>
                 <h2 className="text-2xl font-black text-ink leading-tight">Time for a break!</h2>
                 <p className="text-sm text-ink-muted font-semibold mt-1 mb-3">
-                  30 minutes of screen time — your body needs a rest
+                  {breakIntervalMins} minutes of screen time — your body needs a rest
                 </p>
               </div>
 
