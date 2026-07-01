@@ -1,4 +1,5 @@
 # Spine-o-saur — Digital Wellness Companion
+https://gamma.app/docs/Spine-o-saur--up21m9s1ou0if79?mode=present#card-7jwp82jm17ci13y
 
 A React-based wellness app built for UWBHack 2026. Spine-o-saur combines a virtual pet, work session management, habit tracking, real-time posture monitoring, and social accountability to encourage healthy work habits and combat sedentary lifestyle issues.
 
